@@ -1,0 +1,444 @@
+<!-- Your report starts here! -->
+<p>Prepared by: <a href="mailto:your-email@example.com">Joe LeFever -
+Sicher Height</a> Lead Auditor: - Joe LeFever</p>
+<h1 id="table-of-contents">Table of Contents</h1>
+<ul>
+<li><a href="#table-of-contents">Table of Contents</a></li>
+<li><a href="#protocol-summary">Protocol Summary</a></li>
+<li><a href="#disclaimer">Disclaimer</a></li>
+<li><a href="#risk-classification">Risk Classification</a></li>
+<li><a href="#audit-details">Audit Details</a>
+<ul>
+<li><a href="#scope">Scope</a></li>
+<li><a href="#roles">Roles</a></li>
+</ul></li>
+<li><a href="#executive-summary">Executive Summary</a>
+<ul>
+<li><a href="#issues-found">Issues found</a></li>
+</ul></li>
+<li><a href="#findings">Findings</a></li>
+</ul>
+<h1 id="protocol-summary">Protocol Summary</h1>
+<p>The Snowman Merkle Airdrop protocol is a token distribution system
+that combines ERC20 tokens (Snow), ERC721 NFTs (Snowman), and Merkle
+tree-based airdrops. Users can earn or purchase Snow tokens, which can
+then be staked in the SnowmanAirdrop contract to receive proportional
+Snowman NFTs. The protocol features a 12-week farming period where users
+can earn free Snow tokens weekly or purchase them with ETH/WETH. The
+airdrop system utilizes Merkle proofs for efficient distribution and
+supports signature-based claiming on behalf of others.</p>
+<p><strong>Key Components:</strong> - <strong>Snow.sol</strong>: ERC20
+token with buy/earn mechanics and fee collection -
+<strong>Snowman.sol</strong>: ERC721 NFT with on-chain Base64 encoding -
+<strong>SnowmanAirdrop.sol</strong>: Merkle tree-based airdrop system
+with signature verification</p>
+<h1 id="disclaimer">Disclaimer</h1>
+<p>The Joe LeFever - Sicher Height team makes all effort to find as many
+vulnerabilities in the code in the given time period, but holds no
+responsibilities for the findings provided in this document. A security
+audit by the team is not an endorsement of the underlying business or
+product. The audit was time-boxed and the review of the code was solely
+on the security aspects of the Solidity implementation of the
+contracts.</p>
+<h1 id="risk-classification">Risk Classification</h1>
+<table>
+<thead>
+<tr class="header">
+<th></th>
+<th></th>
+<th>Impact</th>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td></td>
+<td></td>
+<td>High</td>
+<td>Medium</td>
+<td>Low</td>
+</tr>
+<tr class="even">
+<td></td>
+<td>High</td>
+<td>H</td>
+<td>H/M</td>
+<td>M</td>
+</tr>
+<tr class="odd">
+<td>Likelihood</td>
+<td>Medium</td>
+<td>H/M</td>
+<td>M</td>
+<td>M/L</td>
+</tr>
+<tr class="even">
+<td></td>
+<td>Low</td>
+<td>M</td>
+<td>M/L</td>
+<td>L</td>
+</tr>
+</tbody>
+</table>
+<p>We use the <a
+href="https://docs.codehawks.com/hawks-auditors/how-to-evaluate-a-finding-severity">CodeHawks</a>
+severity matrix to determine severity. See the documentation for more
+details.</p>
+<h1 id="audit-details">Audit Details</h1>
+<p><strong>Date:</strong> June 19, 2025<br />
+<strong>Auditor:</strong> Joe LeFever (Sicher Height)<br />
+<strong>Classification:</strong> Competitive Audit<br />
+<strong>Duration:</strong> 2 days</p>
+<h2 id="scope">Scope</h2>
+<p>The following contracts were in scope for this audit:</p>
+<pre><code>src/
+├── Snow.sol
+├── Snowman.sol
+└── SnowmanAirdrop.sol</code></pre>
+<p><strong>Lines of Code:</strong> ~300 total <strong>Solidity
+Version:</strong> ^0.8.24</p>
+<h2 id="roles">Roles</h2>
+<ul>
+<li><strong>Owner</strong>: Deployer of Snow contract with
+administrative privileges</li>
+<li><strong>Collector</strong>: Address authorized to collect fees from
+Snow token purchases</li>
+<li><strong>Users</strong>: Can buy/earn Snow tokens and claim Snowman
+NFTs</li>
+<li><strong>Recipients</strong>: Addresses eligible for airdrops via
+Merkle proofs</li>
+</ul>
+<h1 id="executive-summary">Executive Summary</h1>
+<p>This audit identified <strong>6 High severity</strong>, <strong>6
+Medium severity</strong>, and <strong>3 Low severity</strong>
+vulnerabilities across the three contracts in the Snowman Merkle Airdrop
+protocol. The most critical issues involve missing access controls that
+allow unlimited NFT minting, fund theft through arbitrary token
+transfers, and broken signature verification due to a typo in the
+EIP-712 hash.</p>
+<p>The protocol’s core functionality is severely compromised by these
+vulnerabilities, particularly the unrestricted minting capability that
+completely breaks the tokenomics model. Immediate remediation of High
+severity findings is strongly recommended before any mainnet
+deployment.</p>
+<h2 id="issues-found">Issues found</h2>
+<table>
+<thead>
+<tr class="header">
+<th>Severity</th>
+<th>Number of issues found</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>High</td>
+<td>6</td>
+</tr>
+<tr class="even">
+<td>Medium</td>
+<td>6</td>
+</tr>
+<tr class="odd">
+<td>Low</td>
+<td>3</td>
+</tr>
+<tr class="even">
+<td><strong>Total</strong></td>
+<td><strong>15</strong></td>
+</tr>
+</tbody>
+</table>
+<h1 id="findings">Findings</h1>
+<h3
+id="h-1-global-timer-for-snow.earnsnow-prevents-multiple-users-from-earning-snow-tokens-access-control-dos">[H-1]
+Global timer for Snow.earnSnow() prevents multiple users from earning
+Snow tokens (Access Control + DoS)</h3>
+<p><strong>Description:</strong> The <code>earnSnow()</code> function
+uses a single global timer <code>s_earnTimer</code> that affects all
+users. When any user calls <code>earnSnow()</code>, it prevents all
+other users from calling the function for one week. This breaks the
+intended functionality where each user should be able to earn one Snow
+token per week independently.</p>
+<p><strong>Impact:</strong> Only one user per week can earn free Snow
+tokens across the entire protocol, preventing all other users from
+accessing this core feature and enabling griefing attacks.RetryClaude
+can make mistakes. Please double-check responses.</p>
+<p><strong>Proof of Concept:</strong></p>
+<pre class="solidity"><code>// Day 0: Alice calls earnSnow()
+function earnSnow() external canFarmSnow {
+    // s_earnTimer = 0, so check passes
+    _mint(msg.sender, 1); // Alice gets 1 token
+    s_earnTimer = block.timestamp; // Global timer set
+}
+
+// Day 1: Bob calls earnSnow() 
+function earnSnow() external canFarmSnow {
+    if (s_earnTimer != 0 &amp;&amp; block.timestamp &lt; (s_earnTimer + 1 weeks)) {
+        revert S__Timer(); // ❌ Bob&#39;s call reverts
+    }
+    // Bob gets nothing, has to wait because of Alice&#39;s timer
+}</code></pre>
+<p><strong>Recommended Mitigation:</strong> Replace the global timer
+with a per-user mapping</p>
+<h3
+id="h-2-users-can-lose-eth-when-attempting-to-buy-snow.buysnow-with-incorrect-payment-amounts-logic-error-fund-loss">[H-2]
+Users can lose ETH when attempting to buy Snow.buySnow() with incorrect
+payment amounts (Logic Error + Fund Loss)</h3>
+<p><strong>Description:</strong> The <code>buySnow()</code> function has
+flawed payment logic that can cause users to lose their ETH. If a user
+sends ETH but not the exact required amount, the function keeps their
+ETH and then attempts to charge them again via WETH transfer. This can
+result in double charging or fund loss when the WETH transfer fails.</p>
+<p><strong>Impact:</strong> Users lose ETH permanently when sending
+incorrect amounts, face double charging (paying both ETH and WETH), and
+can have funds trapped in the contract due to failed WETH transfers.</p>
+<p><strong>Proof of Concept:</strong></p>
+<pre class="solidity"><code>// Scenario: s_buyFee = 1 ether, user wants 1 Snow token
+function buySnow(1) external payable { // User sends 0.5 ETH by mistake
+    if (msg.value == (s_buyFee * 1)) { // 0.5 ether != 1 ether
+        // This branch skipped
+    } else {
+        // Contract keeps the 0.5 ETH the user sent
+        i_weth.safeTransferFrom(msg.sender, address(this), 1 ether);
+        // Also takes 1 ETH worth of WETH from user
+        _mint(msg.sender, 1);
+        // User paid 1.5 ETH total (0.5 ETH + 1 WETH) for 1 token
+    }
+}</code></pre>
+<p><strong>Recommended Mitigation:</strong> Implement proper payment
+method validation and refund excess ETH.</p>
+<h3
+id="h-3-no-access-control-on-snowman.mintsnowman-allows-unlimited-nft-minting-missing-access-control-fundprotocol-breaking">[H-3]
+No Access Control on Snowman.mintSnowman() Allows Unlimited NFT Minting
+(Missing Access Control + Fund/Protocol Breaking)</h3>
+<p><strong>Description:</strong> The <code>mintSnowman()</code> function
+in Snowman.sol has no access control restrictions, allowing any user to
+mint unlimited Snowman NFTs to any address. This completely breaks the
+intended tokenomics where NFTs should only be minted through the
+SnowmanAirdrop contract when users stake Snow tokens.</p>
+<p><strong>Impact:</strong> Complete protocol failure. Attackers can
+mint unlimited NFTs, making them worthless and breaking the
+staking/airdrop mechanism. Total loss of protocol integrity.</p>
+<p><strong>Proof of Concept:</strong></p>
+<pre class="solidity"><code>
+function test_UnlimitedMinting() public {
+   address attacker = makeAddr(&quot;attacker&quot;);
+   vm.prank(attacker);
+   snowman.mintSnowman(attacker, 1000000); // Mint 1M NFTs for free
+   assertEq(snowman.balanceOf(attacker), 1000000);
+}</code></pre>
+<p><strong>Recommended Mitigation</strong> Add access control to ensure
+only the SnowmanAirdrop contract can mint:</p>
+<h3
+id="h-4-arbitrary-transferfrom-in-snowmanairdrop-allows-token-theft-input-validation-fund-drain">[H-4]
+Arbitrary transferFrom in SnowmanAirdrop Allows Token Theft (Input
+Validation + Fund Drain)</h3>
+<p><strong>Description:</strong> The <code>claimSnowman()</code>
+function uses user-controlled <code>receiver</code> parameter in
+<code>safeTransferFrom(receiver, address(this), amount)</code>, allowing
+attackers to drain any user’s Snow tokens by setting
+<code>receiver</code> to victim addresses.</p>
+<p><strong>Impact:</strong> Direct fund theft. Attackers can steal Snow
+tokens from any user who has approved the airdrop contract or has
+sufficient balance.</p>
+<p><strong>Proof of Concept:</strong></p>
+<pre class="solidity"><code>function test_ArbitraryTransferFrom() public {
+    // Alice has 1 Snow token and approves airdrop
+    vm.prank(alice);
+    snow.approve(address(airdrop), 1);
+    
+    // Attacker steals Alice&#39;s tokens by using her as receiver
+    bytes32 digest = airdrop.getMessageHash(alice);
+    (uint8 v, bytes32 r, bytes32 s) = vm.sign(alKey, digest);
+    
+    vm.prank(satoshi); // Attacker transaction
+    airdrop.claimSnowman(alice, AL_PROOF, v, r, s);
+    
+    // Alice&#39;s tokens stolen, she gets NFT but lost tokens
+    assertEq(snow.balanceOf(alice), 0);
+    assertEq(snow.balanceOf(address(airdrop)), 1);
+}</code></pre>
+<p><strong>Recommended Mitigation:</strong> Enforce that only
+<code>msg.sender</code> can transfer their own tokens</p>
+<p>### [H-5] MESSAGE_TYPEHASH Typo Breaks All Signature Verification
+(Typo + Signature Bypass)</p>
+<p><strong>Description:</strong> The <code>MESSAGE_TYPEHASH</code>
+constant contains a typo:
+<code>"SnowmanClaim(addres receiver, uint256 amount)"</code> is missing
+the ‘s’ in “address”. This causes all EIP-712 signature verification to
+fail as the hash won’t match user-signed messages.</p>
+<p><strong>Impact:</strong> Complete airdrop system failure. No user can
+successfully claim through signature verification, making the entire
+signature-based claiming mechanism non-functional.</p>
+<p><strong>Recommended Mitigation:</strong> Fix the typo -</p>
+<pre class="solidity"><code>bytes32 private constant MESSAGE_TYPEHASH = keccak256(&quot;SnowmanClaim(address receiver, uint256 amount)&quot;);</code></pre>
+<h3
+id="h-6-reentrancy-in-snowman.mintsnowman-allows-extra-nft-minting-reentrancy-token-inflation">[H-6]
+Reentrancy in Snowman.mintSnowman() Allows Extra NFT Minting (Reentrancy
++ Token Inflation)</h3>
+<p><strong>Description:</strong> The <code>mintSnowman()</code> function
+is vulnerable to reentrancy via the <code>_safeMint()</code> callback to
+<code>onERC721Received()</code>. State variables are updated after the
+external call, allowing malicious contracts to reenter and mint
+additional NFTs.</p>
+<p><strong>Impact:</strong> Attackers can mint more NFTs than intended,
+diluting the NFT supply and breaking the 1:1 Snow token to NFT
+ratio.</p>
+<p><strong>Proof of Concept:</strong></p>
+<pre class="solidity"><code>// PoC - (Need malicious contract with onERC721Received)
+contract MaliciousReceiver {
+    function onERC721Received(...) external returns (bytes4) {
+        if (attackCount &lt; 3) {
+            snowman.mintSnowman(address(this), 2); // Reenter
+            attackCount++;
+        }
+        return IERC721Receiver.onERC721Received.selector;
+    }
+}</code></pre>
+<p><strong>Recommended Mitigation:</strong> Use ReentrancyGuard or
+follow Checks-Effects-Interactions pattern.</p>
+<h3
+id="m-1-re-entrancy-snow.collectfee-vulnerability-in-fee-collection-allows-potential-exploitation-re-entrancy">[M-1]
+Re-entrancy Snow.collectFee() vulnerability in fee collection allows
+potential exploitation (Re-entrancy)</h3>
+<p><strong>Description:</strong> The <code>collectFee()</code> function
+uses a low-level call to transfer ETH to the collector without
+re-entrancy protection. This gives control to the collector contract
+during execution, potentially allowing re-entrancy attacks if the
+collector is a malicious contract.</p>
+<p><strong>Impact:</strong> Potential for re-entrancy attacks if
+collector is a malicious contract.</p>
+<p><strong>Proof of Concept:</strong></p>
+<pre class="solidity"><code>// If collector is a malicious contract, it can re-enter during ETH transfer:
+// collectFee() → ETH sent to collector → collector calls collectFee() again</code></pre>
+<p><strong>Recommended Mitigation:</strong> Implement re-entrancy
+protection and follow checks-effects-interactions pattern.</p>
+<h3
+id="m-2-transaction-atomicity-snow.collectfee-issue-causes-fee-collection-failures-state-management">[M-2]
+Transaction atomicity Snow.collectFee() issue causes fee collection
+failures (State Management)</h3>
+<p><strong>Description:</strong> In <code>collectFee()</code>, if the
+WETH transfer succeeds but the ETH transfer fails, the entire
+transaction reverts. This can lead to situations where fee collection
+repeatedly fails due to ETH transfer issues, even when WETH transfer
+would succeed.</p>
+<p><strong>Impact:</strong> Fee collection can be permanently blocked if
+ETH transfer consistently fails.</p>
+<p><strong>Proof of Concept:</strong></p>
+<pre class="solidity"><code>// If WETH transfer succeeds but ETH transfer fails (collector rejects ETH):
+// WETH gets rolled back due to require() failure, no fees collected at all</code></pre>
+<p><strong>Recommended Mitigation:</strong> Handle WETH and ETH
+transfers independently.</p>
+<h3
+id="m-3-no-double-claim-protection-in-snowmanairdrop-missing-validation-double-spending">[M-3]
+No Double-Claim Protection in SnowmanAirdrop (Missing Validation +
+Double Spending)</h3>
+<p><strong>Description:</strong><br />
+The <code>claimSnowman()</code> function sets
+<code>s_hasClaimedSnowman[receiver] = true</code> but never checks this
+mapping before processing claims, allowing users to potentially claim
+multiple times.</p>
+<p><strong>Impact:</strong> Users could claim NFTs multiple times if
+they can generate multiple valid signatures, leading to unfair
+distribution and NFT inflation.</p>
+<p><strong>Proof of Concept:</strong></p>
+<pre class="solidity"><code>function test_DoubleClaim() public {
+    // Alice claims successfully
+    vm.prank(alice);
+    snow.approve(address(airdrop), 1);
+    
+    bytes32 digest = airdrop.getMessageHash(alice);
+    (uint8 v, bytes32 r, bytes32 s) = vm.sign(alKey, digest);
+    
+    vm.prank(satoshi);
+    airdrop.claimSnowman(alice, AL_PROOF, v, r, s);
+    
+    // Vulnerability: No check for s_hasClaimedSnowman[receiver] before processing
+    // Function sets the flag but never checks it first
+    assertTrue(airdrop.getClaimStatus(alice)); // Already claimed but no protection
+}</code></pre>
+<p><strong>Recommended Mitigation:</strong> Add double-claim check</p>
+<h3
+id="m-4-dos-via-unbounded-loop-in-snowman.mintsnowman-resource-exhaustion-dos">[M-4]
+DoS via Unbounded Loop in Snowman.mintSnowman() (Resource Exhaustion +
+DoS)</h3>
+<p><strong>Description:</strong> The <code>mintSnowman()</code> function
+contains a user-controlled loop with external calls
+<code>(_safeMint)</code>, allowing attackers to cause out-of-gas errors
+by providing large <code>amount</code> values.</p>
+<p><strong>Impact:</strong> Function becomes unusable with large inputs,
+preventing legitimate minting operations and potentially locking the
+contract.</p>
+<p><strong>Proof of Concept:</strong></p>
+<pre class="solidity"><code>// PoC 
+function test_DoSAttack() public {
+    vm.expectRevert(); // Expect out of gas
+    snowman.mintSnowman(address(this), type(uint256).max);
+}</code></pre>
+<p><strong>Recommended Mitigation:</strong> Add reasonable limits</p>
+<h3
+id="m-5-unchecked-transfer-return-value-in-snow.collectfee-unchecked-return-silent-failure">[M-5]
+Unchecked Transfer Return Value in Snow.collectFee() (Unchecked Return +
+Silent Failure)</h3>
+<p><strong>Description:</strong> The <code>collectFee()</code> function
+ignores the return value of <code>i_weth.transfer()</code>, causing
+silent failures if the WETH transfer fails while continuing to execute
+the rest of the function.</p>
+<p><strong>Impact:</strong> Collected fees could be permanently lost if
+WETH transfer fails, resulting in financial loss for the protocol.</p>
+<p><strong>Recommended Mitigation:</strong> Check return value or use
+SafeERC20</p>
+<h3
+id="m-6-missing-merkle-root-validation-in-constructor-input-validation-deployment-risk">[M-6]
+Missing Merkle Root Validation in Constructor (Input Validation +
+Deployment Risk)</h3>
+<p><strong>Description:</strong> The SnowmanAirdrop constructor accepts
+<code>_merkleRoot</code> parameter without validating it’s not zero,
+potentially allowing deployment with an invalid merkle root that would
+make all proofs fail.</p>
+<p><strong>Impact:</strong> If deployed with zero merkle root, the
+entire airdrop system becomes non-functional as all merkle proofs would
+be invalid.</p>
+<p><strong>Recommended Mitigation:</strong> Add validation in
+constructor</p>
+<h3
+id="l-1-incorrect-event-emission-in-snowman.mintsnowman-logic-error-integration-issues">[L-1]
+Incorrect Event Emission in Snowman.mintSnowman() (Logic Error +
+Integration Issues)</h3>
+<p><strong>Description:</strong> The <code>SnowmanMinted</code> event
+parameter is named <code>numberOfSnowman</code> (suggesting count) but
+emits <code>s_TokenCounter</code> (token ID), creating semantic
+confusion and breaking off-chain integrations expecting count data.</p>
+<p><strong>Impact:</strong> Broken off-chain integrations, misleading
+analytics, and poor user experience as dApps expecting mint counts
+receive token IDs instead.</p>
+<p><strong>Recommended Mitigation:</strong> Either emit count or rename
+parameter.</p>
+<h3
+id="l-2-missing-event-emission-in-snow.earnsnow-function-reduces-transparency-event-emission">[L-2]
+Missing event emission in Snow.earnSnow() function reduces transparency
+(Event Emission)</h3>
+<p><strong>Description:</strong> The <code>earnSnow()</code> function
+does not emit an event when tokens are earned, unlike
+<code>buySnow()</code> which emits a <code>SnowBought</code> event. This
+inconsistency makes it difficult to track earning activities
+off-chain.</p>
+<p><strong>Impact:</strong> Reduced transparency and auditability.</p>
+<p><strong>Recommended Mitigation:</strong> Add event emission to
+earnSnow().</p>
+<h3
+id="l-3-snow.sol-contract-can-collect-accidental-eth-transfers-as-fees-unintended-fund-collection">[L-3]
+Snow.sol Contract can collect accidental ETH transfers as fees
+(Unintended Fund Collection)</h3>
+<p><strong>Description:</strong> The <code>collectFee()</code> function
+transfers all ETH in the contract to the collector using
+<code>address(this).balance</code>, including any ETH accidentally sent
+directly to the contract address. This ETH was not paid as fees for Snow
+tokens but gets collected as if it were.</p>
+<p><strong>Impact:</strong> Users who accidentally send ETH to the
+contract lose their funds and collector receives funds that weren’t
+legitimate fees.</p>
+<p><strong>Recommended Mitigation:</strong> Track legitimate fees
+separately from accidental transfers.</p>
